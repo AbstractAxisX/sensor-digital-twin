@@ -5,7 +5,8 @@
  *  مدل سه‌بعدی سنسور HC-SR04 در صحنه
  *  • مدل فیزیکی µs-دقیق در مقیاس واقعی می‌ماند (۴۵×۲۰mm)
  *  • نمایش بصری با ضریب VIS بزرگ می‌شود تا خوانا و قابل‌کلیک باشد
- *  • استند سه‌پایه + حباب کلیک بزرگ + برچسب ثابت + کون اکوی زنده
+ *  • استند + حباب کلیک بزرگ + برچسب ثابت + کون اکوی زنده
+ *  • دابل‌کلیک = فوکوس دوربین | کلیک تمیز = انتخاب (درگ انتخاب نمی‌کند)
  * ─────────────────────────────────────────────────────────────
  */
 
@@ -21,7 +22,7 @@ interface Props {
 }
 
 /** ضریب بزرگ‌نمایی «نمایشی» برد سنسور (فیزیک آکوستیک مستقل از این است) */
-const VIS = 4;
+const VIS = 8;
 /** فاصله‌ی صفحه‌ی ترنسدیوسرها از مرکز گروه (بعد از اسکیل) */
 const FACE_Z = 0.0125 * VIS + 0.006;
 
@@ -33,6 +34,7 @@ export function SensorDevice3D({ sensor }: Props) {
   const stateRef = useRef<HTMLSpanElement>(null);
   const dotRef = useRef<HTMLSpanElement>(null);
   const currentLen = useRef(0);
+  const downRef = useRef<{ x: number; y: number; t: number } | null>(null);
   const tool = useSimStore((s) => s.tool);
   const selected = useSimStore((s) => s.selectedId) === sensor.id;
 
@@ -100,10 +102,31 @@ export function SensorDevice3D({ sensor }: Props) {
     }
   });
 
-  const handlePointerDown = (e: { stopPropagation: () => void }) => {
-    if (tool === 'measure' || (tool !== 'select' && tool !== 'move' && tool !== 'rotate' && tool !== 'scale')) return;
+  const interactiveTool = tool === 'select' || tool === 'move' || tool === 'rotate' || tool === 'scale' || tool === 'measure';
+
+  const handlePointerDown = (e: { stopPropagation: () => void; clientX: number; clientY: number }) => {
+    if (!interactiveTool) return;
+    e.stopPropagation();
+    downRef.current = { x: e.clientX, y: e.clientY, t: performance.now() };
+  };
+
+  const handlePointerUp = (e: { stopPropagation: () => void; clientX: number; clientY: number }) => {
+    if (!interactiveTool) return;
+    const down = downRef.current;
+    downRef.current = null;
+    if (!down) return;
+    // درگ دوربین = انتخاب نشود
+    const dist = Math.hypot(e.clientX - down.x, e.clientY - down.y);
+    const dt = performance.now() - down.t;
+    if (dist > 6 || dt > 650) return;
     e.stopPropagation();
     useSimStore.getState().select(sensor.id);
+  };
+
+  const handleDoubleClick = (e: { stopPropagation: () => void }) => {
+    e.stopPropagation();
+    useSimStore.getState().select(sensor.id);
+    useSimStore.getState().requestFocus(sensor.id);
   };
 
   const py = Math.max(0.03, sensor.position[1]);
@@ -115,16 +138,18 @@ export function SensorDevice3D({ sensor }: Props) {
       position={sensor.position}
       rotation={[0, sensor.rotationY, 0]}
       onPointerDown={handlePointerDown}
+      onPointerUp={handlePointerUp}
+      onDoubleClick={handleDoubleClick}
     >
       {/* ── استند: پایه + میله (فقط وقتی سنسور شناور است) ── */}
       {py > 0.06 && (
         <>
-          <mesh position={[0, -py + 0.005, 0]} castShadow>
-            <cylinderGeometry args={[0.085, 0.1, 0.01, 28]} />
+          <mesh position={[0, -py + 0.006, 0]} castShadow>
+            <cylinderGeometry args={[0.13, 0.16, 0.012, 28]} />
             <meshStandardMaterial color="#27272a" roughness={0.7} metalness={0.2} />
           </mesh>
           <mesh position={[0, -py / 2, 0]} castShadow>
-            <cylinderGeometry args={[0.008, 0.01, py, 14]} />
+            <cylinderGeometry args={[0.012, 0.016, py, 14]} />
             <meshStandardMaterial color="#3f3f46" roughness={0.5} metalness={0.6} />
           </mesh>
         </>
@@ -133,14 +158,14 @@ export function SensorDevice3D({ sensor }: Props) {
       {/* ── حلقه‌ی انتخاب ── */}
       {selected && (
         <mesh position={[0, 0, 0]} rotation={[Math.PI / 2, 0, 0]}>
-          <torusGeometry args={[0.13, 0.006, 10, 48]} />
+          <torusGeometry args={[0.24, 0.008, 10, 48]} />
           <meshBasicMaterial color="#34d399" transparent opacity={0.9} />
         </mesh>
       )}
 
       {/* ── حباب کلیک بزرگ (نامرئی ولی Raycast-پذیر) — خارج از رجیستری آکوستیک ── */}
       <mesh position={[0, 0, 0]}>
-        <sphereGeometry args={[0.16, 12, 10]} />
+        <sphereGeometry args={[0.24, 12, 10]} />
         <meshBasicMaterial transparent opacity={0} depthWrite={false} />
       </mesh>
 
@@ -157,7 +182,7 @@ export function SensorDevice3D({ sensor }: Props) {
       </mesh>
 
       {/* ── برچسب زنده (اندازه‌ی ثابت روی صفحه) ── */}
-      <Html position={[0, 0.085, 0]} center zIndexRange={[50, 0]} pointerEvents="none">
+      <Html position={[0, 0.17, 0]} center zIndexRange={[50, 0]} pointerEvents="none">
         <div
           dir="ltr"
           className="flex w-max select-none flex-col items-center gap-0.5 rounded-lg border border-zinc-700/80 bg-zinc-950/90 px-2.5 py-1 shadow-xl backdrop-blur-sm"
@@ -177,7 +202,7 @@ export function SensorDevice3D({ sensor }: Props) {
         </div>
       </Html>
 
-      {/* ── برد سنسور (بزرگ‌نمایی نمایشی ×۴) — رجیستری آکوستیک ── */}
+      {/* ── برد سنسور (بزرگ‌نمایی نمایشی ×۸) — رجیستری آکوستیک ── */}
       <group ref={acousticRef} scale={VIS}>
         {/* برد مدار چاپی آبی */}
         <mesh castShadow position={[0, 0.0008, 0]}>
@@ -195,14 +220,14 @@ export function SensorDevice3D({ sensor }: Props) {
           <boxGeometry args={[0.006, 0.002, 0.006]} />
           <meshStandardMaterial color="#14161a" roughness={0.4} metalness={0.3} />
         </mesh>
-        {/* ترنسدیوسرها T و R (قطر 16mm) */}
+        {/* ترنسدیوسرهای T و R — رو به جلو (محور استوانه = Z) */}
         {[-0.0125, 0.0125].map((z) => (
-          <group key={z} position={[0, 0.0075, z]}>
+          <group key={z} position={[0, 0.0075, z]} rotation={[Math.PI / 2, 0, 0]}>
             <mesh castShadow>
               <cylinderGeometry args={[0.008, 0.008, 0.012, 24]} />
               <meshStandardMaterial color="#b9bec6" roughness={0.35} metalness={0.85} />
             </mesh>
-            {/* مش بالایی */}
+            {/* مش بالایی — رو به جهت تابش */}
             <mesh position={[0, 0.0062, 0]}>
               <cylinderGeometry args={[0.0072, 0.0072, 0.0008, 24]} />
               <meshStandardMaterial color="#8d939c" roughness={0.5} metalness={0.6} />

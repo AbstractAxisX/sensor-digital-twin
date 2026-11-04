@@ -17,6 +17,7 @@ import { Slider } from '@/components/ui/slider';
 import { Switch } from '@/components/ui/switch';
 import { useLabSensor } from '@/hooks/use-lab-sensor';
 import { cn } from '@/lib/utils';
+import { Ghost, Pause, Play, Trash2 } from 'lucide-react';
 import Oscilloscope from './Oscilloscope';
 
 const PANEL = 'rounded-xl border border-zinc-800 bg-zinc-900/70 p-4';
@@ -92,11 +93,15 @@ export default function LabView() {
     setCycleMs,
     triggerPulse,
     clearLog,
-    pauseEdges,
+    togglePause,
+    paused,
+    setPhantom,
+    phantom,
     edges,
     readings,
     lastReading,
     speed,
+    stats,
     beamGain,
     absorption,
   } = useLabSensor();
@@ -107,6 +112,7 @@ export default function LabView() {
 
   const lastWidthUs = lastReading ? Math.round(lastReading.widthUs) : 0;
   const lastDatasheetCm = lastReading?.datasheetCm != null ? lastReading.datasheetCm.toFixed(1) : '0.0';
+  const outOfRange = lastReading?.outOfRange ?? false;
 
   return (
     <div dir="rtl" className="grid grid-cols-1 gap-4 xl:grid-cols-[320px_1fr_300px]">
@@ -135,6 +141,17 @@ export default function LabView() {
           onChange={setCycleMs}
         />
 
+        <div className="flex items-center justify-between rounded-lg border border-zinc-800 bg-zinc-950/60 px-2.5 py-2">
+          <div className="flex items-center gap-1.5">
+            <Ghost className="h-3.5 w-3.5 text-zinc-400" />
+            <div>
+              <div className="text-xs text-zinc-200">اکوهای کاذب</div>
+              <div className="text-[10px] text-zinc-500">نویز واقعی مدار</div>
+            </div>
+          </div>
+          <Switch checked={phantom} onCheckedChange={setPhantom} />
+        </div>
+
         <Separator className="bg-zinc-800" />
 
         <div className="space-y-3">
@@ -147,6 +164,11 @@ export default function LabView() {
             step={1}
             onChange={(v) => setTarget({ distanceCm: v })}
           />
+          {state.target.distanceCm > 400 && (
+            <p className="text-[10px] leading-4 text-amber-400/90">
+              ⚠ بالاتر از ۴۰۰cm معمولاً خارج از رنج ماژول است — پالس ۳۸ms (timeout) می‌گیرید. این رفتار واقعی است.
+            </p>
+          )}
           <div className="space-y-2">
             <Label className="text-xs text-zinc-400">متریال هدف</Label>
             <Select
@@ -187,6 +209,11 @@ export default function LabView() {
             step={1}
             onChange={(v) => setTarget({ angleDeg: v })}
           />
+          {state.target.angleDeg > 30 && (
+            <p className="text-[10px] leading-4 text-amber-400/90">
+              ⚠ بالای ۳۰° اکو عملاً به سنسور برنمی‌گردد (بازتاب آینه‌ای) — خوانش ناپایدار/OUT طبیعی است.
+            </p>
+          )}
         </div>
 
         <Separator className="bg-zinc-800" />
@@ -216,17 +243,30 @@ export default function LabView() {
         <div className="grid grid-cols-2 gap-2">
           <Button
             variant="outline"
-            onClick={pauseEdges}
-            className="border-zinc-700 bg-zinc-950 text-zinc-300 hover:bg-zinc-800 hover:text-zinc-100"
+            onClick={togglePause}
+            className={cn(
+              'border-zinc-700 bg-zinc-950 text-zinc-300 hover:bg-zinc-800 hover:text-zinc-100',
+              paused && 'border-emerald-500/50 text-emerald-300',
+            )}
           >
-            فریم اسکوپ
+            {paused ? (
+              <span className="flex items-center gap-1.5">
+                <Play className="h-3.5 w-3.5" /> ادامه
+              </span>
+            ) : (
+              <span className="flex items-center gap-1.5">
+                <Pause className="h-3.5 w-3.5" /> فریم اسکوپ
+              </span>
+            )}
           </Button>
           <Button
             variant="outline"
             onClick={clearLog}
             className="border-zinc-700 bg-zinc-950 text-zinc-300 hover:bg-zinc-800 hover:text-zinc-100"
           >
-            پاک کردن
+            <span className="flex items-center gap-1.5">
+              <Trash2 className="h-3.5 w-3.5" /> پاک کردن
+            </span>
           </Button>
         </div>
       </div>
@@ -236,18 +276,30 @@ export default function LabView() {
         <div className={PANEL}>
           <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
             <div className="text-sm font-bold text-zinc-200">اسیلوسکوپ دیجیتال — Trig / Echo</div>
-            <Badge
-              variant="outline"
-              className={cn('font-mono text-[10px]', STATE_STYLES[twin.state] ?? STATE_STYLES.IDLE)}
-            >
-              {twin.stateFa}
-            </Badge>
+            <div className="flex items-center gap-1.5">
+              {paused && (
+                <Badge variant="outline" className="border-sky-500/40 bg-sky-500/10 font-mono text-[10px] text-sky-300">
+                  ❄ فریم منجمد
+                </Badge>
+              )}
+              <Badge
+                variant="outline"
+                className={cn('font-mono text-[10px]', STATE_STYLES[twin.state] ?? STATE_STYLES.IDLE)}
+              >
+                {twin.stateFa}
+              </Badge>
+            </div>
           </div>
           <Oscilloscope edges={edges} stateFa={twin.stateFa} />
         </div>
 
         <div className={PANEL}>
-          <div className="mb-2 text-sm font-bold text-zinc-200">مانیتور سریال</div>
+          <div className="mb-2 flex items-center justify-between">
+            <div className="text-sm font-bold text-zinc-200">مانیتور سریال</div>
+            <span className="font-mono text-[10px] text-zinc-500" dir="ltr">
+              target {state.target.distanceCm} cm · v={speed.toFixed(1)} m/s
+            </span>
+          </div>
           <div
             dir="ltr"
             className="max-h-48 space-y-1 overflow-y-auto rounded-lg bg-zinc-950 p-3 text-left font-mono text-xs"
@@ -255,19 +307,22 @@ export default function LabView() {
             {readings.length === 0 ? (
               <div className="text-zinc-600">{'// منتظر اولین اندازه‌گیری…'}</div>
             ) : (
-              readings.map((r) => (
-                <div
-                  key={r.index}
-                  className={cn(
-                    'border-l-2 py-0.5 pl-2',
-                    r.outOfRange ? 'border-l-red-400 text-red-400' : 'border-l-emerald-400 text-emerald-300',
-                  )}
-                >
-                  {r.outOfRange
-                    ? `#${r.index}  ✖ خارج از رنج (پالس ${Math.round(r.widthUs)}µs)`
-                    : `#${r.index}  ➜  ${r.distanceCm?.toFixed(2) ?? '—'} cm   (width ${Math.round(r.widthUs)} µs)`}
-                </div>
-              ))
+              readings.map((r) => {
+                const err = r.distanceCm != null ? r.distanceCm - state.target.distanceCm : null;
+                return (
+                  <div
+                    key={r.index}
+                    className={cn(
+                      'border-l-2 py-0.5 pl-2',
+                      r.outOfRange ? 'border-l-red-400 text-red-400' : 'border-l-emerald-400 text-emerald-300',
+                    )}
+                  >
+                    {r.outOfRange
+                      ? `#${r.index}  ✖ خارج از رنج (پالس ${Math.round(r.widthUs)}µs = timeout ۳۸ms)`
+                      : `#${r.index}  ➜  ${r.distanceCm?.toFixed(2) ?? '—'} cm  (هدف ${state.target.distanceCm} · خطای ${err != null && err >= 0 ? '+' : ''}${err?.toFixed(2) ?? '—'})`}
+                  </div>
+                );
+              })
             )}
           </div>
         </div>
@@ -278,7 +333,7 @@ export default function LabView() {
         <div className={PANEL}>
           <div className="text-sm font-bold text-zinc-200">فاصله‌ی اندازه‌گیری‌شده</div>
           <div dir="ltr" className="mt-2 flex items-baseline gap-2 text-left">
-            <span className="font-mono text-4xl tabular-nums text-emerald-300">
+            <span className={`font-mono text-4xl tabular-nums ${outOfRange ? 'text-red-400' : 'text-emerald-300'}`}>
               {measured !== null ? measured.toFixed(2) : '—'}
             </span>
             <span className="text-sm text-zinc-400">cm</span>
@@ -286,9 +341,9 @@ export default function LabView() {
           <div className="mt-1 font-mono text-xs tabular-nums text-zinc-500">
             دیتاشیت (÷58): {lastReading?.datasheetCm != null ? lastReading.datasheetCm.toFixed(1) : '—'} cm
           </div>
-          {lastReading?.outOfRange && (
+          {outOfRange && (
             <Badge variant="outline" className="mt-2 border-red-500/40 bg-red-500/10 text-red-400">
-              خارج از رنج — پالس ۳۸ms
+              خارج از رنج — پالس ۳۸ms (هیچ اکویی برگشت)
             </Badge>
           )}
         </div>
@@ -317,6 +372,24 @@ export default function LabView() {
             label="متریال تشخیص‌داده‌شده"
             value={lastReading?.detectedMaterialId ? getMaterial(lastReading.detectedMaterialId).labelFa : '—'}
           />
+        </div>
+
+        <div className={cn(PANEL, 'space-y-2')}>
+          <div className="text-sm font-bold text-zinc-200">آمار ۲۰ خوانش آخر</div>
+          {stats ? (
+            <>
+              <AnalyzeRow label="تعداد نمونه" value={`${stats.count}`} />
+              <AnalyzeRow label="میانگین" value={`${stats.mean.toFixed(2)} cm`} valueClass="text-emerald-300" />
+              <AnalyzeRow label="کمینه / بیشینه" value={`${stats.min.toFixed(1)} / ${stats.max.toFixed(1)} cm`} />
+              <AnalyzeRow
+                label="جیتر (σ)"
+                value={`±${stats.std.toFixed(2)} cm`}
+                valueClass={stats.std < 0.5 ? 'text-emerald-300' : 'text-amber-300'}
+              />
+            </>
+          ) : (
+            <div className="text-xs text-zinc-600">هنوز خوانش موفقی ثبت نشده.</div>
+          )}
         </div>
 
         <div className={PANEL}>

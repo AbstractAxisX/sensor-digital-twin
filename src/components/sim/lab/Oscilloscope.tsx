@@ -23,8 +23,14 @@ interface Segment {
 const HEIGHT = 220;
 const TRIG_COLOR = '#fbbf24';
 const ECHO_COLOR = '#34d399';
+const TIMEOUT_COLOR = '#ef4444';
 const GRID_COLOR = '#27272a';
 const TEXT_COLOR = '#52525b';
+
+/** پالس ۳۸ms = timeout (هیچ اکویی برنگشته) */
+function isTimeoutSeg(s: Segment): boolean {
+  return Number.isFinite(s.end) && s.end - s.start >= 37990;
+}
 
 /** قالب‌بندی زمان: ≥1000µs → میلی‌ثانیه با یک رقم اعشار */
 function fmtUs(us: number): string {
@@ -156,7 +162,7 @@ export default function Oscilloscope({ edges, stateFa }: OscilloscopeProps) {
       }
       ctx.restore();
 
-      /* رسم یک لاین پله‌ای */
+      /* رسم یک لاین پله‌ای — پالس‌های timeout قرمز کشیده می‌شوند */
       const drawLane = (
         segs: Segment[],
         baseY: number,
@@ -165,28 +171,32 @@ export default function Oscilloscope({ edges, stateFa }: OscilloscopeProps) {
         lineWidth: number,
         glow: boolean,
       ) => {
-        ctx.strokeStyle = color;
-        ctx.lineWidth = lineWidth;
-        if (glow) {
-          ctx.shadowColor = color;
-          ctx.shadowBlur = 8;
-        }
-        ctx.beginPath();
-        ctx.moveTo(0, baseY);
-        ctx.lineTo(w, baseY);
-        for (const s of segs) {
-          const a = Math.max(s.start, winStart);
-          const b = Math.min(s.end, winEnd);
-          if (!(b > a)) continue;
-          const xa = x(a);
-          const xb = x(b);
-          ctx.moveTo(xa, baseY);
-          ctx.lineTo(xa, highY);
-          ctx.lineTo(xb, highY);
-          ctx.lineTo(xb, baseY);
-        }
-        ctx.stroke();
-        ctx.shadowBlur = 0;
+        const normal = segs.filter((s) => !isTimeoutSeg(s));
+        const timeout = segs.filter(isTimeoutSeg);
+        const paint = (list: Segment[], c: string) => {
+          ctx.strokeStyle = c;
+          ctx.lineWidth = lineWidth;
+          ctx.shadowColor = c;
+          ctx.shadowBlur = glow ? 8 : 0;
+          ctx.beginPath();
+          ctx.moveTo(0, baseY);
+          ctx.lineTo(w, baseY);
+          for (const s of list) {
+            const a = Math.max(s.start, winStart);
+            const b = Math.min(s.end, winEnd);
+            if (!(b > a)) continue;
+            const xa = x(a);
+            const xb = x(b);
+            ctx.moveTo(xa, baseY);
+            ctx.lineTo(xa, highY);
+            ctx.lineTo(xb, highY);
+            ctx.lineTo(xb, baseY);
+          }
+          ctx.stroke();
+          ctx.shadowBlur = 0;
+        };
+        paint(normal, color);
+        if (timeout.length > 0) paint(timeout, TIMEOUT_COLOR);
       };
 
       drawLane(trigSegs, trigBase, trigHigh, TRIG_COLOR, 1.25, false);
@@ -195,7 +205,8 @@ export default function Oscilloscope({ edges, stateFa }: OscilloscopeProps) {
       /* نشانگر لبه‌ی سقوط اکو + عرض پالس */
       if (lastEchoFallT !== null && lastEchoWidth !== null) {
         const xf = x(lastEchoFallT);
-        ctx.fillStyle = ECHO_COLOR;
+        const timeout = lastEchoWidth >= 37990;
+        ctx.fillStyle = timeout ? TIMEOUT_COLOR : ECHO_COLOR;
         ctx.beginPath();
         ctx.moveTo(xf, echoBase + 6);
         ctx.lineTo(xf - 4, echoBase + 13);
@@ -203,12 +214,13 @@ export default function Oscilloscope({ edges, stateFa }: OscilloscopeProps) {
         ctx.closePath();
         ctx.fill();
         ctx.font = '10px monospace';
-        if (xf < 80) {
+        const label = timeout ? `TIMEOUT ${Math.round(lastEchoWidth / 1000)}ms` : `w=${Math.round(lastEchoWidth)}µs`;
+        if (xf < 110) {
           ctx.textAlign = 'left';
-          ctx.fillText(`w=${Math.round(lastEchoWidth)}µs`, xf + 7, echoBase + 22);
+          ctx.fillText(label, xf + 7, echoBase + 22);
         } else {
           ctx.textAlign = 'right';
-          ctx.fillText(`w=${Math.round(lastEchoWidth)}µs`, xf - 6, echoBase + 22);
+          ctx.fillText(label, xf - 6, echoBase + 22);
         }
       }
     } else {

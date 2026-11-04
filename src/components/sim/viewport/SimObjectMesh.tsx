@@ -62,11 +62,13 @@ export function SimObjectMesh({ obj, remountKey }: Props) {
     }
   }, [draggingId, obj.id, obj.dynamic, remountKey]);
 
+  /* کلیک تمیز در مقابل درگ دوربین — فقط با کلیک کوتاه انتخاب/اندازه‌گیری می‌شود */
+  const downRef = useRef<{ x: number; y: number; t: number } | null>(null);
+
   const handlePointerDown = (e: ThreeEvent<PointerEvent>) => {
-    // متر لیزری: اندازه‌گیری دقیق روی سطوح اجسام (نقطه‌ی سه‌بعدی واقعی)
     if (tool === 'measure') {
       e.stopPropagation();
-      useSimStore.getState().addMeasurePoint([e.point.x, e.point.y, e.point.z]);
+      downRef.current = { x: e.clientX, y: e.clientY, t: performance.now() };
       return;
     }
     const placementTools = ['plan', 'wall', 'box', 'sphere', 'cylinder', 'addSensor'];
@@ -74,7 +76,25 @@ export function SimObjectMesh({ obj, remountKey }: Props) {
       return; // اجازه‌ی عبور به صفحه‌ی قرارگیری
     }
     e.stopPropagation();
-    useSimStore.getState().select(obj.id);
+    downRef.current = { x: e.clientX, y: e.clientY, t: performance.now() };
+  };
+
+  const handlePointerUp = (e: ThreeEvent<PointerEvent>) => {
+    const down = downRef.current;
+    downRef.current = null;
+    if (!down) return;
+    // درگ = چرخش دوربین — انتخاب/اندازه‌گیری انجام نشود
+    const dist = Math.hypot(e.clientX - down.x, e.clientY - down.y);
+    const dt = performance.now() - down.t;
+    if (dist > 6 || dt > 650) return;
+
+    if (tool === 'measure') {
+      useSimStore.getState().addMeasurePoint([e.point.x, e.point.y, e.point.z]);
+      return;
+    }
+    if (tool === 'select' || tool === 'move' || tool === 'rotate' || tool === 'scale') {
+      useSimStore.getState().select(obj.id);
+    }
   };
 
   const geometry = useMemo(() => {
@@ -103,7 +123,7 @@ export function SimObjectMesh({ obj, remountKey }: Props) {
       linearDamping={0.05}
       angularDamping={0.1}
     >
-      <group ref={groupRef} onPointerDown={handlePointerDown}>
+      <group ref={groupRef} onPointerDown={handlePointerDown} onPointerUp={handlePointerUp}>
         <mesh castShadow receiveShadow scale={obj.scale}>
           {geometry}
           <meshStandardMaterial

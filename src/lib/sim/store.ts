@@ -256,6 +256,8 @@ export const useSimStore = create<SimState>((set, get) => ({
       sensorOrder: [...st.sensorOrder, id],
       selectedId: id,
     }));
+    // فوکوس خودکار دوربین روی سنسور تازه — وگرنه در صحنه‌ی بزرگ گم می‌شود
+    get().requestFocus(id);
     return id;
   },
 

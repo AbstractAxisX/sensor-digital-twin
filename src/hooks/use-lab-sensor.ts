@@ -2,6 +2,9 @@
  * ─────────────────────────────────────────────────────────────
  *  هوک آزمایشگاه سنسور — دوقلوی مستقل از صحنه‌ی سه‌بعدی
  *  یک هدف سنتتیک (فاصله/متریال/زاویه قابل تنظیم) + اسیلوسکوپ
+ *
+ *  نکته‌ی مهم: بافر لبه‌ها «مشترک» است (twin.edges === edgeBufferRef.current)
+ *  پس هرگز نباید مرجع آرایه عوض شود — فقط درجا خالی می‌شود.
  * ─────────────────────────────────────────────────────────────
  */
 
@@ -48,9 +51,13 @@ export function useLabSensor() {
   const [edges, setEdges] = useState<EdgeEvent[]>([]);
   const [readings, setReadings] = useState<TwinReading[]>([]);
   const [lastReading, setLastReading] = useState<TwinReading | null>(null);
+  const [paused, setPaused] = useState(false);
+  const [phantom, setPhantomState] = useState(false);
   const [, forceTick] = useState(0);
   const edgeBufferRef = useRef<EdgeEvent[]>([]);
   const dirtyRef = useRef(false);
+  const pausedRef = useRef(false);
+  pausedRef.current = paused;
 
   if (!twinRef.current) {
     twinRef.current = new HCSR04Twin({
@@ -81,6 +88,8 @@ export function useLabSensor() {
       },
       getEnvironment: () => stateRef.current.env,
     });
+    // بافر مشترک لبه‌ها — مرجع هرگز عوض نمی‌شود
+    twinRef.current.edges = edgeBufferRef.current;
   }
 
   const twin = twinRef.current!;
@@ -97,6 +106,7 @@ export function useLabSensor() {
 
   useEffect(() => {
     const id = window.setInterval(() => {
+      if (pausedRef.current) return; // فریم اسکوپ: نمایش منجمد می‌ماند
       if (!dirtyRef.current) return;
       dirtyRef.current = false;
       setEdges([...edgeBufferRef.current]);
@@ -110,12 +120,6 @@ export function useLabSensor() {
   /* حلقه‌ی زمان واقعی میکروثانیه‌ای */
   useEffect(() => {
     let raf = 0;
-    const captureEdge = (e: EdgeEvent) => {
-      edgeBufferRef.current.push(e);
-      if (edgeBufferRef.current.length > EDGE_CAP) edgeBufferRef.current.splice(0, edgeBufferRef.current.length - EDGE_CAP);
-    };
-    twin.edges = edgeBufferRef.current; // بافر مشترک
-
     let lastAuto = 0;
     const loop = (tMs: number) => {
       const st = stateRef.current;
@@ -130,24 +134,33 @@ export function useLabSensor() {
     return () => cancelAnimationFrame(raf);
   }, [twin]);
 
-  /* پاکسازی وقتی تنظیمات عوض می‌شود؟ نه — تایمینگ ادامه دارد */
-
   const triggerPulse = useCallback(() => {
     twin.triggerPulse(performance.now() * 1000);
   }, [twin]);
 
+  /** پاک کردن کامل لاگ — درجا، بدون قطع شدن بافر مشترک اسکوپ */
   const clearLog = useCallback(() => {
     twin.readings = [];
+    twin.lastReading = null;
+    twin.edges.length = 0; // ← درجا (مرجع حفظ می‌شود)
     setReadings([]);
     setLastReading(null);
-    edgeBufferRef.current = [];
     setEdges([]);
   }, [twin]);
 
-  const pauseEdges = useCallback(() => {
-    // فریم‌گیری اسکوپ (freeze)
-    setEdges([...edgeBufferRef.current]);
-  }, []);
+  /** فریم اسکوپ: توقف/ادامه‌ی واقعی نمایش */
+  const togglePause = useCallback(() => {
+    setPaused((p) => {
+      const next = !p;
+      if (!next) {
+        // هنگام ادامه، یک فریم تازه بگیر
+        setEdges([...edgeBufferRef.current]);
+        setReadings([...twin.readings].reverse().slice(0, 60));
+        setLastReading(twin.lastReading);
+      }
+      return next;
+    });
+  }, [twin]);
 
   const setTarget = useCallback((patch: Partial<LabTarget>) => {
     setState((s) => ({ ...s, target: { ...s.target, ...patch } }));
@@ -165,7 +178,31 @@ export function useLabSensor() {
     setState((s) => ({ ...s, cycleMs: v }));
   }, []);
 
+  const setPhantom = useCallback(
+    (v: boolean) => {
+      twin.phantomEnabled = v;
+      setPhantomState(v);
+    },
+    [twin],
+  );
+
   const speed = speedOfSound(state.env);
+
+  /* آمار آزمایشگاه: ۲۰ خوانش آخر موفق */
+  const valid = readings.filter((r) => !r.outOfRange && r.distanceCm != null).slice(0, 20);
+  const stats = (() => {
+    if (valid.length === 0) return null;
+    const vals = valid.map((r) => r.distanceCm as number);
+    const mean = vals.reduce((a, b) => a + b, 0) / vals.length;
+    const variance = vals.reduce((a, b) => a + (b - mean) ** 2, 0) / vals.length;
+    return {
+      count: vals.length,
+      mean,
+      min: Math.min(...vals),
+      max: Math.max(...vals),
+      std: Math.sqrt(variance),
+    };
+  })();
 
   return {
     twin,
@@ -176,11 +213,15 @@ export function useLabSensor() {
     setCycleMs,
     triggerPulse,
     clearLog,
-    pauseEdges,
+    togglePause,
+    paused,
+    setPhantom,
+    phantom,
     edges,
     readings,
     lastReading,
     speed,
+    stats,
     /* آمار آزمایشگاه */
     beamGain: beamPattern(state.target.angleDeg),
     absorption: absorptionDbPerM(state.env),

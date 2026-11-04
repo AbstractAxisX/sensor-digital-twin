@@ -1,11 +1,19 @@
 'use client';
 
 /**
- * نوار بالا — برند، سوییچ فضای کاری، عملیات صحنه
+ * نوار بالا — برند، سوییچ فضای کاری، عملیات صحنه + راهنما
  */
 
-import { Radar, Save, FolderOpen, FilePlus2 } from 'lucide-react';
+import { useState } from 'react';
+import { Radar, Save, FolderOpen, FilePlus2, CircleHelp } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import { useSimStore } from '@/lib/sim/store';
 
 export type WorkspaceTab = 'viewport' | 'lab';
@@ -17,8 +25,48 @@ interface Props {
   onScenes: () => void;
 }
 
+const GUIDE_SECTIONS: Array<{ title: string; items: string[] }> = [
+  {
+    title: '🎬 محیط سه‌بعدی',
+    items: [
+      'چرخش دوربین: درگ ماوس — زوم: اسکرول — جابجایی: درگ راست',
+      'افزودن سنسور/شیء: از نوار ابزار انتخاب کنید و یک «کلیک تمیز» روی زمین بزنید (درگِ چرخش دوربین شیء نمی‌گذارد)',
+      'انتخاب: کلیک روی شیء یا سنسور — دابل‌کلیک روی سنسور = زوم',
+      'جابجایی/چرخش/مقیاس: ابزار را انتخاب کنید و از دستگیره‌ها بکشید',
+      'کلید F = فوکوس دوربین روی انتخاب فعلی',
+    ],
+  },
+  {
+    title: '📡 کنترل سنسور در صحنه',
+    items: [
+      'بعد از انتخاب سنسور، نوار کنترل پایین ظاهر می‌شود: Trig دستی، فوکوس، اجرای خودکار',
+      'پنل مشخصات (راست): موقعیت، جهت‌گیری، سایکل، ریست دوقلو و حذف',
+      'کون سبز = مسیر امواج اولتراسونیک و فاصله‌ی لحظه‌ای هدف',
+      'قرمز شدن کون/OUT = هیچ اکویی برنگشته (خارج از رنج ۴ متر)',
+    ],
+  },
+  {
+    title: '📏 متر لیزری',
+    items: [
+      'ابزار «متر لیزری» را بردارید و روی دو نقطه کلیک کنید',
+      'کلیک روی اجسام = نقطه‌ی دقیق سه‌بعدی روی سطح',
+      'نتیجه: فاصله‌ی مستقیم + تفکیک ΔX/ΔY/ΔZ در پنل کنار',
+    ],
+  },
+  {
+    title: '🔬 آزمایشگاه سنسور',
+    items: [
+      'هدف مجازی: فاصله، متریال و زاویه را عوض کنید و پاسخ مدار را ببینید',
+      'اسیلوسکوپ: زرد = Trig، سبز = Echo، قرمز = timeout ۳۸ms',
+      '«فریم اسکوپ» نمایش را منجمد می‌کند — دوباره بزنید تا ادامه یابد',
+      'بایندزون ۲cm، حداکثر ~۴m، زاویه بالای ۳۰° اکو نمی‌دهد — همه واقعی‌اند',
+    ],
+  },
+];
+
 export function TopBar({ tab, onTabChange, onSave, onScenes }: Props) {
   const resetScene = useSimStore((s) => s.resetScene);
+  const [helpOpen, setHelpOpen] = useState(false);
 
   const tabBtn = (active: boolean) =>
     `rounded-lg px-3.5 py-1.5 text-xs font-bold transition-colors ${
@@ -49,6 +97,16 @@ export function TopBar({ tab, onTabChange, onSave, onScenes }: Props) {
       </nav>
 
       <div className="flex items-center gap-1.5">
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-8 w-8 text-zinc-400 hover:text-emerald-300"
+          onClick={() => setHelpOpen(true)}
+          aria-label="راهنما"
+          title="راهنمای استفاده"
+        >
+          <CircleHelp className="h-4 w-4" />
+        </Button>
         <Button variant="ghost" size="sm" className="h-8 gap-1.5 text-zinc-400 hover:text-zinc-100" onClick={() => resetScene()} title="صحنه‌ی نمونه">
           <FilePlus2 className="h-3.5 w-3.5" />
           <span className="hidden md:inline">صحنه‌ی نمونه</span>
@@ -62,6 +120,32 @@ export function TopBar({ tab, onTabChange, onSave, onScenes }: Props) {
           <span className="hidden md:inline">ذخیره صحنه</span>
         </Button>
       </div>
+
+      <Dialog open={helpOpen} onOpenChange={setHelpOpen}>
+        <DialogContent className="max-h-[85vh] overflow-y-auto border-zinc-800 bg-zinc-950 text-zinc-100 sm:max-w-lg" dir="rtl">
+          <DialogHeader>
+            <DialogTitle className="text-base">راهنمای سریع WaveLab</DialogTitle>
+            <DialogDescription className="text-xs text-zinc-500">
+              همه‌چیز درباره‌ی کنترل صحنه، سنسور و آزمایشگاه
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex flex-col gap-4 pb-2">
+            {GUIDE_SECTIONS.map((sec) => (
+              <section key={sec.title}>
+                <h4 className="mb-1.5 text-xs font-bold text-emerald-300">{sec.title}</h4>
+                <ul className="flex flex-col gap-1">
+                  {sec.items.map((it) => (
+                    <li key={it} className="flex gap-1.5 text-[11px] leading-5 text-zinc-400">
+                      <span className="mt-[7px] h-1 w-1 shrink-0 rounded-full bg-zinc-600" />
+                      <span>{it}</span>
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            ))}
+          </div>
+        </DialogContent>
+      </Dialog>
     </header>
   );
 }

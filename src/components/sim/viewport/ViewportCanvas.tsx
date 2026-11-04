@@ -4,12 +4,17 @@
  * ─────────────────────────────────────────────────────────────
  *  ViewportCanvas — قلب موتور WaveLab
  *  رندر Three.js + فیزیک Rapier + ابزارها + سنسورها + اندازه‌گیری
+ *
+ *  ضدباگ‌های تعامل:
+ *  • ابزارهای قرارگیری/متر فقط با «کلیک تمیز» فعال می‌شوند (نه وسط چرخش دوربین)
+ *  • فوکوس دوربین واقعی روی شیء/سنسور انتخابی (کلید F یا دکمه)
+ *  • نوار کنترل سریع سنسور انتخاب‌شده
  * ─────────────────────────────────────────────────────────────
  */
 
 import { Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import * as THREE from 'three';
-import { Canvas, useFrame } from '@react-three/fiber';
+import { Canvas, useFrame, useThree, type ThreeEvent } from '@react-three/fiber';
 import {
   GizmoHelper,
   GizmoViewport,
@@ -21,10 +26,13 @@ import {
   TransformControls,
 } from '@react-three/drei';
 import { Physics } from '@react-three/rapier';
+import { Crosshair, Zap } from 'lucide-react';
 import { useSimStore, type ObjectKind, type ToolId } from '@/lib/sim/store';
 import { sensorRuntime } from '@/lib/sim/runtime';
 import { SimObjectMesh } from './SimObjectMesh';
 import { SensorDevice3D } from './SensorDevice3D';
+import { Button } from '@/components/ui/button';
+import { Switch } from '@/components/ui/switch';
 
 const PLACEMENT_TOOLS: ToolId[] = ['plan', 'wall', 'box', 'sphere', 'cylinder', 'addSensor'];
 const GIZMO_MODES: Partial<Record<ToolId, 'translate' | 'rotate' | 'scale'>> = {
@@ -32,6 +40,23 @@ const GIZMO_MODES: Partial<Record<ToolId, 'translate' | 'rotate' | 'scale'>> = {
   rotate: 'rotate',
   scale: 'scale',
 };
+
+/* ── ضدهای کلیک در مقابل درگ (چرخش دوربین نباید شیء بگذارد/نقطه بگیرد) ── */
+const CLICK_MAX_PX = 6;
+const CLICK_MAX_MS = 650;
+
+function pointerDownGuard(e: { clientX: number; clientY: number }) {
+  return { x: e.clientX, y: e.clientY, t: performance.now() };
+}
+function isCleanClick(
+  down: { x: number; y: number; t: number } | null,
+  e: { clientX: number; clientY: number },
+): boolean {
+  if (!down) return false;
+  const dist = Math.hypot(e.clientX - down.x, e.clientY - down.y);
+  const dt = performance.now() - down.t;
+  return dist <= CLICK_MAX_PX && dt <= CLICK_MAX_MS;
+}
 
 /* ── پیش‌برنده‌ی رنتایم دوقلوها + FPS ── */
 function EngineDriver() {
@@ -47,6 +72,50 @@ function EngineDriver() {
       a.t = 0;
     }
   });
+  return null;
+}
+
+/* ── کنترلر فوکوس دوربین — درخواست‌های requestFocus را اجرا می‌کند ── */
+function CameraController() {
+  const focusRequest = useSimStore((s) => s.focusRequest);
+  const camera = useThree((s) => s.camera);
+  const controls = useThree((s) => s.controls) as
+    | { target: THREE.Vector3; update: () => void }
+    | null;
+  const goal = useRef<{ cam: THREE.Vector3; target: THREE.Vector3 } | null>(null);
+
+  useEffect(() => {
+    if (focusRequest === 0) return;
+    const id = useSimStore.getState().focusTargetId;
+    if (!id) return;
+    const mesh = sensorRuntime.getMesh(id);
+    if (!mesh) return;
+    mesh.updateWorldMatrix(true, false);
+    const target = mesh.getWorldPosition(new THREE.Vector3());
+
+    // جهت دید فعلی را حفظ کن، فقط فاصله را جمع کن
+    const dir = camera.position.clone().sub(controls?.target ?? target);
+    if (dir.lengthSq() < 0.01) dir.set(1.4, 0.9, 1.4);
+    dir.normalize();
+
+    const isSensor = !!useSimStore.getState().sensors[id];
+    const dist = isSensor ? 1.6 : 3.4;
+    const camGoal = target.clone().addScaledVector(dir, dist);
+    camGoal.y = Math.max(camGoal.y, 0.35);
+    goal.current = { cam: camGoal, target };
+  }, [focusRequest, camera, controls]);
+
+  useFrame(() => {
+    const g = goal.current;
+    if (!g) return;
+    camera.position.lerp(g.cam, 0.14);
+    if (controls) {
+      controls.target.lerp(g.target, 0.14);
+      controls.update();
+    }
+    if (camera.position.distanceTo(g.cam) < 0.04) goal.current = null;
+  });
+
   return null;
 }
 
@@ -105,32 +174,46 @@ function GizmoController() {
 function PlacementPlane() {
   const tool = useSimStore((s) => s.tool);
   const active = PLACEMENT_TOOLS.includes(tool) || tool === 'measure';
+  const downRef = useRef<{ x: number; y: number; t: number } | null>(null);
   if (!active) return null;
+
+  const handleDown = (e: ThreeEvent<PointerEvent>) => {
+    e.stopPropagation();
+    downRef.current = pointerDownGuard(e);
+  };
+
+  const handleUp = (e: ThreeEvent<PointerEvent>) => {
+    const down = downRef.current;
+    downRef.current = null;
+    // درگ = چرخش/جابجایی دوربین — نادیده بگیر
+    if (!isCleanClick(down, e)) return;
+
+    const store = useSimStore.getState();
+    const p: [number, number, number] = [e.point.x, 0, e.point.z];
+    if (tool === 'measure') {
+      store.addMeasurePoint(p);
+    } else if (tool === 'addSensor') {
+      store.addSensor(p);
+      store.setTool('select');
+    } else if (PLACEMENT_TOOLS.includes(tool)) {
+      const kindMap: Record<string, ObjectKind> = {
+        plan: 'floor',
+        wall: 'wall',
+        box: 'box',
+        sphere: 'sphere',
+        cylinder: 'cylinder',
+      };
+      store.addObject(kindMap[tool], p);
+      store.setTool('select');
+    }
+  };
+
   return (
     <mesh
       rotation={[-Math.PI / 2, 0, 0]}
       position={[0, 0.001, 0]}
-      onPointerDown={(e) => {
-        e.stopPropagation();
-        const store = useSimStore.getState();
-        const p: [number, number, number] = [e.point.x, 0, e.point.z];
-        if (tool === 'measure') {
-          store.addMeasurePoint(p);
-        } else if (tool === 'addSensor') {
-          store.addSensor(p);
-          store.setTool('select');
-        } else if (PLACEMENT_TOOLS.includes(tool)) {
-          const kindMap: Record<string, ObjectKind> = {
-            plan: 'floor',
-            wall: 'wall',
-            box: 'box',
-            sphere: 'sphere',
-            cylinder: 'cylinder',
-          };
-          store.addObject(kindMap[tool], p);
-          store.setTool('select');
-        }
-      }}
+      onPointerDown={handleDown}
+      onPointerUp={handleUp}
     >
       <planeGeometry args={[400, 400]} />
       <meshBasicMaterial visible={false} />
@@ -251,6 +334,60 @@ function SensorReadoutOverlay() {
   );
 }
 
+/* ── نوار کنترل سریع سنسور انتخاب‌شده ── */
+function SensorQuickControls() {
+  const selectedId = useSimStore((s) => s.selectedId);
+  const isSensor = useSimStore((s) => (selectedId ? !!s.sensors[selectedId] : false));
+  const sensor = useSimStore((s) => (selectedId ? s.sensors[selectedId] : undefined));
+  const [, force] = useState(0);
+
+  useEffect(() => {
+    if (!isSensor) return;
+    const id = window.setInterval(() => force((n) => n + 1), 400);
+    return () => window.clearInterval(id);
+  }, [isSensor, selectedId]);
+
+  if (!isSensor || !sensor || !selectedId) return null;
+
+  return (
+    <div className="absolute bottom-4 left-1/2 z-20 -translate-x-1/2">
+      <div className="flex items-center gap-2 rounded-2xl border border-emerald-500/30 bg-zinc-950/90 px-3 py-2 shadow-2xl backdrop-blur-md">
+        <span className="max-w-[120px] truncate text-xs font-bold text-emerald-300">{sensor.name}</span>
+        <div className="h-5 w-px bg-zinc-700" />
+        <Button
+          size="sm"
+          className="h-8 gap-1 bg-amber-500 text-xs font-bold text-zinc-950 hover:bg-amber-400"
+          onClick={() => sensorRuntime.manualTrigger(selectedId)}
+          title="ارسال پالس ۱۰ میکروثانیه‌ای Trig"
+        >
+          <Zap className="h-3.5 w-3.5" />
+          Trig
+        </Button>
+        <Button
+          size="sm"
+          variant="outline"
+          className="h-8 gap-1 border-zinc-700 bg-zinc-900 text-xs text-zinc-200 hover:bg-zinc-800"
+          onClick={() => useSimStore.getState().requestFocus(selectedId)}
+          title="نزدیک شدن دوربین به سنسور (F)"
+        >
+          <Crosshair className="h-3.5 w-3.5" />
+          فوکوس
+        </Button>
+        <div className="flex items-center gap-1.5" title="اندازه‌گیری خودکار">
+          <span className="text-[10px] text-zinc-400">خودکار</span>
+          <Switch
+            checked={sensor.autoRun}
+            onCheckedChange={(v) => useSimStore.getState().updateSensor(selectedId, { autoRun: v })}
+          />
+        </div>
+        {sensor.autoRun && (
+          <span className="font-mono text-[10px] text-zinc-500">{sensor.cycleMs}ms</span>
+        )}
+      </div>
+    </div>
+  );
+}
+
 /* ── صحنه ── */
 function SceneContent() {
   const objects = useSimStore((s) => s.objects);
@@ -315,6 +452,7 @@ function SceneContent() {
       <PlacementPlane />
       <MeasurementLayer />
       <GizmoController />
+      <CameraController />
       <EngineDriver />
 
       <OrbitControls
@@ -359,6 +497,9 @@ export function ViewportCanvas({ active = true }: { active?: boolean }) {
         case 'm':
           store.setTool('measure');
           break;
+        case 'f':
+          store.requestFocus();
+          break;
         case 'escape':
           useSimStore.setState({ pendingMeasurePoint: null });
           store.select(null);
@@ -379,7 +520,7 @@ export function ViewportCanvas({ active = true }: { active?: boolean }) {
         shadows="percentage"
         frameloop={active ? 'always' : 'never'}
         dpr={[1, 2]}
-        camera={{ position: [6.5, 5.5, 9], fov: 50, near: 0.05, far: 400 }}
+        camera={{ position: [4.2, 2.6, 4.6], fov: 50, near: 0.05, far: 400 }}
         gl={{ antialias: true }}
         onPointerMissed={() => useSimStore.getState().select(null)}
       >
@@ -388,6 +529,7 @@ export function ViewportCanvas({ active = true }: { active?: boolean }) {
         </Suspense>
       </Canvas>
       <SensorReadoutOverlay />
+      <SensorQuickControls />
     </div>
   );
 }

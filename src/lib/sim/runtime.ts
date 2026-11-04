@@ -31,6 +31,8 @@ interface SensorRuntimeEntry {
 
 class SensorRuntime {
   private entries = new Map<string, SensorRuntimeEntry>();
+  /** آخرین زمان موتور (میکروثانیه) — پایه‌ی زمانی برای Trig دستی */
+  private lastTUs = 0;
   /** مش‌های اصلی برای گیزمو/فوکوس */
   private meshes = new Map<string, THREE.Object3D>();
   /** مش‌های شرکت‌کننده در Raycasting آکوستیک (بدون المان‌های کمکی مثل استند/حباب کلیک) */
@@ -173,10 +175,22 @@ class SensorRuntime {
     return groupEchos(rays);
   }
 
+  /**
+   * پالس Trig دستی از UI — با پایه‌ی زمانی خودِ موتور (نه performance.now)
+   * تا با تایم‌لاین ماشین‌حالت هم‌خوان بماند.
+   */
+  manualTrigger(sensorId: string): boolean {
+    const entry = this.entries.get(sensorId);
+    if (!entry) return false;
+    entry.twin.triggerPulse(this.lastTUs + 1000); // ۱ms در آینده — فریم بعد پردازش می‌شود
+    return true;
+  }
+
   /** پیشبرد همه‌ی دوقلوها — از useFrame صحنه صدا زده می‌شود (ms) */
   update(nowMs: number) {
     const store = useSimStore.getState();
     const tUs = nowMs * 1000;
+    this.lastTUs = tUs;
     for (const [id, entry] of this.entries) {
       const sensor = store.sensors[id];
       if (!sensor) continue;

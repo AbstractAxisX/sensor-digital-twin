@@ -298,7 +298,8 @@ export class HCSR04Twin implements SensorTwin {
     this.state = 'IDLE';
     this.trigLevel = false;
     this.echoLevel = false;
-    this.edges = [];
+    // درجا خالی می‌شود — بافر ممکن است با UI (اسکوپ) مشترک باشد و مرجع نباید قطع شود
+    this.edges.length = 0;
     this.readings = [];
     this.lastReading = null;
     this.pendingPulse = null;
