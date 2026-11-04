@@ -70,7 +70,7 @@ bun install
 bun run db:push
 
 # 4) start the dev server
-bun run dev
+bun run dev          # Windows:  bun run dev:win
 ```
 
 > ℹ️ `DATABASE_URL` uses a **relative path** (`file:../db/custom.db`), so it works unchanged on Windows, macOS and Linux. The `db/*.db` files are git-ignored — your local data stays local.
