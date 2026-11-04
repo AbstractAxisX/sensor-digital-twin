@@ -60,15 +60,20 @@ src/
 ## 🚀 Getting Started
 
 ```bash
-# install
+# 1) create your local .env from the example (safe, no secrets inside)
+cp .env.example .env        # Windows PowerShell:  copy .env.example .env
+
+# 2) install dependencies
 bun install
 
-# push the database schema
+# 3) push the database schema
 bun run db:push
 
-# start the dev server
+# 4) start the dev server
 bun run dev
 ```
+
+> ℹ️ `DATABASE_URL` uses a **relative path** (`file:../db/custom.db`), so it works unchanged on Windows, macOS and Linux. The `db/*.db` files are git-ignored — your local data stays local.
 
 ## 🛠️ Tech Stack
 
