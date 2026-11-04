@@ -39,7 +39,7 @@ export interface HCSR04TwinOptions {
   provideEchos: () => EchoCandidate[];
   /** خواندن محیط فعلی */
   getEnvironment: () => SensorEnvironment;
-  /** توزیع گاوسی فعال؟ (پیش‌فرض بله) */
+  /** جیتر/تاخیر آستانه‌ای فعال؟ (پیش‌فرض بله — رفتار واقعی مدار) */
   noise?: boolean;
 }
 
@@ -77,6 +77,9 @@ export class HCSR04Twin implements SensorTwin {
 
   /** شمارنده */
   readingIndex = 0;
+
+  /** اکوهای کاذب نویزی (رفتار واقعی مدار بدون هدف) — پیش‌فرض خاموش؛ از UI قابل فعال‌شدن */
+  phantomEnabled = false;
 
   /** کاندیداهای اکوی اندازه‌گیری جاری */
   private candidates: EchoCandidate[] = [];
@@ -202,8 +205,8 @@ export class HCSR04Twin implements SensorTwin {
     }
 
     if (!chosen) {
-      // اکوی کاذب؟ (نویز واقعی مدار وقتی هدفی نیست)
-      if (noisy && Math.random() < 0.03) {
+      // اکوی کاذب؟ (نویز واقعی مدار وقتی هدفی نیست — فقط اگر کاربر فعالش کرده باشد)
+      if (noisy && this.phantomEnabled && Math.random() < 0.03) {
         const d = 0.2 + Math.random() * Math.random() * 3.3;
         chosen = {
           objectId: 'phantom',

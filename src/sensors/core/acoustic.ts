@@ -16,8 +16,8 @@ import type { EchoCandidate, SensorEnvironment } from './types';
 /** آستانه‌ی تشخیص مقایسه‌گر داخلی (دامنه نسبت به این مقدار سنجیده می‌شود) */
 export const DETECTION_THRESHOLD = 1.0;
 
-/** ثابت کالیبراسیون SPL داخلی: هدف صلب و صاف روی محور در ~4.1m دقیقاً روی آستانه */
-export const SPL_CAL = 309;
+/** ثابت کالیبراسیون SPL داخلی: هدف صلب و صاف روی محور در ~4.0m دقیقاً روی آستانه */
+export const SPL_CAL = 583;
 
 /** مرجع اتلاف هندسی (متر) */
 export const SPREADING_REF_M = 0.3;
@@ -64,8 +64,10 @@ export function echoAmplitude(params: {
   const beam = beamPattern(angleDeg);
   if (beam <= 0.001) return 0;
 
-  // بازتاب آینه‌ای: سطح مایل، انرژی را از سنسور دور می‌کند
-  const specular = 0.25 + 0.75 * Math.pow(Math.max(0, Math.min(1, incidenceCos)), 1.5);
+  // بازتاب آینه‌ای: در 40kHz طول‌موج 8.5mm است و سطوح «صاف» حساب می‌شوند؛
+  // انرژی بازگشتی به سنسور با مجذور کسینوس تابش افت می‌کند —
+  // سطوح مایل (زاویه‌ی تابشی کم با نرمال) عملاً اکوی قابل‌تشخیص برنمی‌گردانند.
+  const specular = Math.pow(Math.max(0, Math.min(1, incidenceCos)), 2);
 
   // اتلاف هندسی معکوس مجذور نسبت به مرجع 30cm
   const spreading = Math.pow(SPREADING_REF_M / distanceM, 2);

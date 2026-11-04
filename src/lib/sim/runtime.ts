@@ -31,7 +31,10 @@ interface SensorRuntimeEntry {
 
 class SensorRuntime {
   private entries = new Map<string, SensorRuntimeEntry>();
+  /** مش‌های اصلی برای گیزمو/فوکوس */
   private meshes = new Map<string, THREE.Object3D>();
+  /** مش‌های شرکت‌کننده در Raycasting آکوستیک (بدون المان‌های کمکی مثل استند/حباب کلیک) */
+  private acousticMeshes = new Map<string, THREE.Object3D>();
   private registryListeners = new Set<() => void>();
   private tmpM = new THREE.Matrix4();
   private tmpQ = new THREE.Quaternion();
@@ -43,12 +46,14 @@ class SensorRuntime {
   });
 
   /* ── رجیستری مش‌ها ── */
-  registerMesh(id: string, obj: THREE.Object3D) {
+  registerMesh(id: string, obj: THREE.Object3D, acousticObj?: THREE.Object3D) {
     this.meshes.set(id, obj);
+    this.acousticMeshes.set(id, acousticObj ?? obj);
     this.notifyRegistry();
   }
   unregisterMesh(id: string) {
     this.meshes.delete(id);
+    this.acousticMeshes.delete(id);
     this.notifyRegistry();
   }
   getMesh(id: string): THREE.Object3D | undefined {
@@ -112,7 +117,7 @@ class SensorRuntime {
 
     // مش‌های قابل برخورد (به جز خود سنسور)
     const collidables: THREE.Object3D[] = [];
-    for (const [id, mesh] of this.meshes) {
+    for (const [id, mesh] of this.acousticMeshes) {
       if (id === sensorId) continue;
       if (mesh.visible) collidables.push(mesh);
     }
@@ -175,6 +180,7 @@ class SensorRuntime {
     for (const [id, entry] of this.entries) {
       const sensor = store.sensors[id];
       if (!sensor) continue;
+      entry.twin.phantomEnabled = store.phantomEchoes;
       if (sensor.autoRun && nowMs - entry.lastAutoTrigMs >= sensor.cycleMs) {
         entry.lastAutoTrigMs = nowMs;
         entry.twin.triggerPulse(tUs);

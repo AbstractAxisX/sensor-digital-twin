@@ -8,6 +8,7 @@
 
 import { useEffect, useMemo, useRef } from 'react';
 import * as THREE from 'three';
+import type { ThreeEvent } from '@react-three/fiber';
 import { RigidBody, type RapierRigidBody } from '@react-three/rapier';
 import { getMaterial } from '@/sensors/core/materials';
 import { useSimStore, type SimObject } from '@/lib/sim/store';
@@ -61,12 +62,15 @@ export function SimObjectMesh({ obj, remountKey }: Props) {
     }
   }, [draggingId, obj.id, obj.dynamic, remountKey]);
 
-  const handlePointerDown = (e: { stopPropagation: () => void; }) => {
-    const placementTools = ['measure', 'plan', 'wall', 'box', 'sphere', 'cylinder', 'addSensor'];
+  const handlePointerDown = (e: ThreeEvent<PointerEvent>) => {
+    // متر لیزری: اندازه‌گیری دقیق روی سطوح اجسام (نقطه‌ی سه‌بعدی واقعی)
+    if (tool === 'measure') {
+      e.stopPropagation();
+      useSimStore.getState().addMeasurePoint([e.point.x, e.point.y, e.point.z]);
+      return;
+    }
+    const placementTools = ['plan', 'wall', 'box', 'sphere', 'cylinder', 'addSensor'];
     if (placementTools.includes(tool)) {
-      if (tool === 'measure') {
-        e.stopPropagation();
-      }
       return; // اجازه‌ی عبور به صفحه‌ی قرارگیری
     }
     e.stopPropagation();

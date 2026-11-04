@@ -76,6 +76,13 @@ interface SimState {
   draggingId: string | null;
   tool: ToolId;
 
+  /** شمارنده‌ی درخواست فوکوس دوربین + هدف */
+  focusRequest: number;
+  focusTargetId: string | null;
+
+  /** اکوهای کاذب نویزی (رفتار واقعی) — پیش‌فرض خاموش */
+  phantomEchoes: boolean;
+
   env: SensorEnvironment;
   gridVisible: boolean;
 
@@ -100,6 +107,9 @@ interface SimState {
   select: (id: string | null) => void;
   setTool: (t: ToolId) => void;
   setDragging: (id: string | null) => void;
+  /** فوکوس دوربین روی شیء/سنسور (پیش‌فرض: انتخاب فعلی) */
+  requestFocus: (id?: string) => void;
+  setPhantomEchoes: (v: boolean) => void;
   setEnv: (patch: Partial<SensorEnvironment>) => void;
   toggleGrid: () => void;
   setPlanSize: (w: number, d: number) => void;
@@ -158,8 +168,8 @@ function defaultScene(): { objects: Record<string, SimObject>; objectOrder: stri
     kind: 'box',
     name: 'جعبه‌ی چوبی',
     materialId: 'wood',
-    position: [0.55, 0.25, -0.9],
-    rotation: [0, 0.4, 0],
+    position: [0.3, 0.25, -0.6],
+    rotation: [0, 0.35, 0],
     scale: [0.5, 0.5, 0.5],
     dynamic: true,
   };
@@ -186,6 +196,9 @@ export const useSimStore = create<SimState>((set, get) => ({
   selectedId: null,
   draggingId: null,
   tool: 'select',
+  focusRequest: 0,
+  focusTargetId: null,
+  phantomEchoes: false,
   env: { ...DEFAULT_ENV },
   gridVisible: true,
   measurements: [],
@@ -290,6 +303,12 @@ export const useSimStore = create<SimState>((set, get) => ({
   select: (id) => set({ selectedId: id }),
   setTool: (t) => set({ tool: t, pendingMeasurePoint: null }),
   setDragging: (id) => set({ draggingId: id }),
+  requestFocus: (id) =>
+    set((st) => ({
+      focusTargetId: id ?? st.selectedId,
+      focusRequest: st.focusRequest + 1,
+    })),
+  setPhantomEchoes: (v) => set({ phantomEchoes: v }),
   setEnv: (patch) => set((st) => ({ env: { ...st.env, ...patch } })),
   toggleGrid: () => set((st) => ({ gridVisible: !st.gridVisible })),
   setPlanSize: (w, d) => set({ planWidth: w, planDepth: d }),
